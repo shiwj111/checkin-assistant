@@ -14,7 +14,7 @@ const CONFIG = {
   eveningStart: { h: 19, m: 0 },
   eveningEnd:   { h: 21, m: 0 },
   workHourThreshold: 9.5,
-  feishuWebhookUrl: 'https://open.feishu.cn/open-apis/bot/v2/hook/YOUR_WEBHOOK_ID',
+  feishuWebhookUrl: 'https://open.feishu.cn/open-apis/bot/v2/hook/db142d2a-074a-4146-af5a-9a3b16fb667b',
   feishuUserOpenId: 'ou_95ee53259573dfcd85be8f576623a2c1',
 };
 
