@@ -1,6 +1,7 @@
 name = "checkin-worker"
 main = "src/index.js"
 compatibility_date = "2024-01-01"
+account_id = "283a489be3d34e48e70310453b234dc8"
 
 [[kv_namespaces]]
 binding = "CHECKIN_RECORDS"
@@ -8,3 +9,4 @@ id = "5eb80f7a94cc42049a6e699c8fbcbcef"
 
 [vars]
 USER_ID = "ou_95ee53259573dfcd85be8f576623a2c1"
+
