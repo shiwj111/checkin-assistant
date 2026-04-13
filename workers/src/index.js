@@ -281,7 +281,9 @@ async function handleRequest(request, env) {
   }
 
   if (path === '/health') {
-    return new Response('OK');
+    return new Response('OK', {
+      headers: Object.assign({ 'Content-Type': 'text/plain' }, corsHeaders),
+    });
   }
 
   return corsResponse(JSON.stringify({ error: 'Not found' }), 404);
