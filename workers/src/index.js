@@ -18,6 +18,19 @@ const CONFIG = {
   feishuUserOpenId: 'ou_95ee53259573dfcd85be8f576623a2c1',
 };
 
+function getNumberFromEnv(env, key, fallback) {
+  const val = Number(env[key]);
+  return Number.isFinite(val) ? val : fallback;
+}
+
+function getGeoConfig(env) {
+  return {
+    officeLat: getNumberFromEnv(env, 'OFFICE_LAT', CONFIG.officeLat),
+    officeLng: getNumberFromEnv(env, 'OFFICE_LNG', CONFIG.officeLng),
+    radiusMeters: getNumberFromEnv(env, 'RADIUS_METERS', CONFIG.radiusMeters),
+  };
+}
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
@@ -32,22 +45,24 @@ function corsResponse(body, status) {
 }
 
 // ==================== 工具函数 ====================
-function isWithinRadius(lat, lng) {
+function isWithinRadius(lat, lng, geoConfig) {
+  const geo = geoConfig || CONFIG;
   const R = 6371000;
-  const dLat = (lat - CONFIG.officeLat) * Math.PI / 180;
-  const dLng = (lng - CONFIG.officeLng) * Math.PI / 180;
+  const dLat = (lat - geo.officeLat) * Math.PI / 180;
+  const dLng = (lng - geo.officeLng) * Math.PI / 180;
   const a = Math.sin(dLat/2)**2 +
-    Math.cos(CONFIG.officeLat * Math.PI/180) * Math.cos(lat * Math.PI/180) *
+    Math.cos(geo.officeLat * Math.PI/180) * Math.cos(lat * Math.PI/180) *
     Math.sin(dLng/2)**2;
-  return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)) <= CONFIG.radiusMeters;
+  return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)) <= geo.radiusMeters;
 }
 
-function distanceFromOffice(lat, lng) {
+function distanceFromOffice(lat, lng, geoConfig) {
+  const geo = geoConfig || CONFIG;
   const R = 6371000;
-  const dLat = (lat - CONFIG.officeLat) * Math.PI / 180;
-  const dLng = (lng - CONFIG.officeLng) * Math.PI / 180;
+  const dLat = (lat - geo.officeLat) * Math.PI / 180;
+  const dLng = (lng - geo.officeLng) * Math.PI / 180;
   const a = Math.sin(dLat/2)**2 +
-    Math.cos(CONFIG.officeLat * Math.PI/180) * Math.cos(lat * Math.PI/180) *
+    Math.cos(geo.officeLat * Math.PI/180) * Math.cos(lat * Math.PI/180) *
     Math.sin(dLng/2)**2;
   return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
@@ -140,7 +155,7 @@ async function sendFeishuCard(title, content) {
 }
 
 // ==================== 核心检测逻辑 ====================
-async function runCheck(env, userId) {
+async function runCheck(env, userId, geoConfig) {
   const now = new Date();
   const key = userId || CONFIG.feishuUserOpenId;
   const actions = [];
@@ -149,7 +164,7 @@ async function runCheck(env, userId) {
     const morning = await getKVRecord(env, key, 'morning');
     if (!morning) {
       const loc = await getLocation(env, key);
-      if (loc && isWithinRadius(loc.lat, loc.lng)) {
+      if (loc && isWithinRadius(loc.lat, loc.lng, geoConfig)) {
         const last = await getLastRemind(env, key, 'morning');
         const gap = last ? now - new Date(last) : 0;
         if (!last || gap > 25 * 60 * 1000) {
@@ -167,7 +182,7 @@ async function runCheck(env, userId) {
       const workHours = (now - new Date(morning.time)) / 1000 / 60 / 60;
       if (workHours >= CONFIG.workHourThreshold) {
         const loc = await getLocation(env, key);
-        if (loc && !isWithinRadius(loc.lat, loc.lng)) {
+        if (loc && !isWithinRadius(loc.lat, loc.lng, geoConfig)) {
           const last = await getLastRemind(env, key, 'evening');
           const gap = last ? now - new Date(last) : 0;
           if (!last || gap > 25 * 60 * 1000) {
@@ -185,7 +200,8 @@ async function runCheck(env, userId) {
 // ==================== HTTP 入口 ====================
 async function handleRequest(request, env) {
   const path = new URL(request.url).pathname;
-  const userId = CONFIG.feishuUserOpenId;
+  const userId = env.FEISHU_USER_OPEN_ID || CONFIG.feishuUserOpenId;
+  const geoConfig = getGeoConfig(env);
 
   if (request.method === 'OPTIONS') {
     return new Response('', { headers: corsHeaders });
@@ -194,12 +210,19 @@ async function handleRequest(request, env) {
   if (path === '/api/location' && request.method === 'POST') {
     try {
       const body = await request.json();
-      await setLocation(env, userId, body.lat, body.lng);
-      const actions = await runCheck(env, userId);
+      const lat = Number(body.lat);
+      const lng = Number(body.lng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        return corsResponse(JSON.stringify({ error: 'invalid lat/lng' }), 400);
+      }
+
+      await setLocation(env, userId, lat, lng);
+      const actions = await runCheck(env, userId, geoConfig);
       return corsResponse(JSON.stringify({
         success: true,
-        inOffice: isWithinRadius(body.lat, body.lng),
-        distance: distanceFromOffice(body.lat, body.lng),
+        inOffice: isWithinRadius(lat, lng, geoConfig),
+        distance: distanceFromOffice(lat, lng, geoConfig),
+        geofence: geoConfig,
         actions: actions,
       }));
     } catch(e) {
@@ -210,18 +233,32 @@ async function handleRequest(request, env) {
   if (path === '/api/record' && request.method === 'POST') {
     try {
       const body = await request.json();
+      const lat = Number(body.lat);
+      const lng = Number(body.lng);
       const record = {
         time: body.time || new Date().toISOString(),
-        lat: body.lat,
-        lng: body.lng,
-        isInOffice: body.lat && body.lng ? isWithinRadius(body.lat, body.lng) : null,
+        lat: Number.isFinite(lat) ? lat : null,
+        lng: Number.isFinite(lng) ? lng : null,
+        isInOffice: Number.isFinite(lat) && Number.isFinite(lng) ? isWithinRadius(lat, lng, geoConfig) : null,
         savedAt: new Date().toISOString(),
       };
       await setKVRecord(env, userId, body.type, record);
-      return corsResponse(JSON.stringify({ success: true, record: record }));
+      return corsResponse(JSON.stringify({
+        success: true,
+        record: record,
+        distance: Number.isFinite(lat) && Number.isFinite(lng) ? distanceFromOffice(lat, lng, geoConfig) : null,
+        geofence: geoConfig,
+      }));
     } catch(e) {
       return corsResponse(JSON.stringify({ error: e.message }), 500);
     }
+  }
+
+  if (path === '/api/config' && request.method === 'GET') {
+    return corsResponse(JSON.stringify({
+      geofence: geoConfig,
+      userId: userId,
+    }));
   }
 
   if (path === '/api/status' && request.method === 'GET') {
@@ -232,8 +269,9 @@ async function handleRequest(request, env) {
       morning: morning,
       evening: evening,
       location: loc,
-      inOffice: loc ? isWithinRadius(loc.lat, loc.lng) : null,
-      distance: loc ? distanceFromOffice(loc.lat, loc.lng) : null,
+      inOffice: loc ? isWithinRadius(loc.lat, loc.lng, geoConfig) : null,
+      distance: loc ? distanceFromOffice(loc.lat, loc.lng, geoConfig) : null,
+      geofence: geoConfig,
     }));
   }
 
@@ -257,7 +295,8 @@ export default {
 
   async scheduled(controller, env, ctx) {
     console.log('[Cron] 定时触发', new Date().toISOString());
-    const actions = await runCheck(env, CONFIG.feishuUserOpenId);
+    const userId = env.FEISHU_USER_OPEN_ID || CONFIG.feishuUserOpenId;
+    const actions = await runCheck(env, userId, getGeoConfig(env));
     console.log('[Cron] 结果:', actions.length > 0 ? actions : '无提醒');
   },
 };
