@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="theme-color" content="#3B82F6" />
   <title>打卡助手</title>
-  <link rel="manifest" href="/manifest.json" />
+  <link rel="manifest" href="./manifest.json" />
   <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect fill='%233B82F6' width='192' height='192' rx='32'/><text x='96' y='130' font-size='100' text-anchor='middle' fill='white'>🕐</text></svg>" />
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -510,7 +510,7 @@ async function init() {
   // Service Worker
   if ('serviceWorker' in navigator) {
     try {
-      await navigator.serviceWorker.register('/sw.js');
+      await navigator.serviceWorker.register('./sw.js');
       addLog('✅ Service Worker 已注册');
     } catch(e) { /* ignore */ }
   }
